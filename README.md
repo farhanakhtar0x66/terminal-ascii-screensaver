@@ -119,6 +119,25 @@ can lose detail. The terminal itself controls pixel resolution, font size, and
 glyph sharpness. This is a manually launched terminal animation, not an OS lock
 screen or automatic idle service.
 
+## Run during a task
+
+```sh
+screensaver --run npm run build
+screensaver --theme --run make -j8
+screensaver --run sh -c 'make && make modules'
+```
+
+Put `--run` last. Arguments after it belong to the command, and shell expressions
+require an explicit `sh -c`. This mode is for **non-interactive** commands: stdin
+is closed, and combined stdout/stderr are saved to a persistent log under
+`~/.local/state/terminal-ascii-screensaver/logs` (or `$XDG_STATE_HOME`).
+
+When the task finishes, the animation stops, output is replayed, and the command's
+exit status is returned. Press any ordinary key to dismiss the animation and
+follow the log while the task continues. Ctrl-C cancels the task and its worker
+process group. The log path is printed on exit. Use this for agent builds only
+when the agent supports non-interactive execution.
+
 ## Run from source
 
 ```sh
@@ -143,14 +162,12 @@ Uninstalling keeps your artwork in your config directory.
 
 ## TODO
 
-- [ ] **Task-duration screensaver:** show animations while a long-running task
-  runs (such as `npm run build`, compiling a Gentoo kernel, or an agent build),
-  then stop automatically and return to the terminal when it finishes. Preserve
-  the task's logs and exit status, and support cancellation.
+- [x] **Task-duration screensaver:** `--run` shows animations while a build runs,
+  then restores the terminal, replays logs, and returns the command's exit status.
 - [ ] Larger, readable artwork for high-density displays such as the MacBook Air.
 - [ ] Theme-aware animated color gradients, including Catppuccin and light themes.
 
-These are planned features; task-duration mode is not implemented yet.
+Unchecked items are planned features.
 
 ## Credits and license
 

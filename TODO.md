@@ -1,6 +1,6 @@
 # Planned improvements
 
-- [ ] Task-duration mode: animate while a build, kernel compilation, or agent task
+- [x] Task-duration mode (`--run`): animate while a build, kernel compilation, or agent task
   runs; restore the terminal automatically when it finishes, retaining logs and
   exit status and supporting cancellation.
 

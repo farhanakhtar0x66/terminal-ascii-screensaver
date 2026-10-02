@@ -11,10 +11,75 @@ import shutil
 import signal
 import subprocess
 import sys
+import tempfile
 import termios
+import time
 import tty
 from pathlib import Path
 from contextlib import ExitStack, contextmanager
+
+
+def cancel_task(task):
+    """Cancel the whole command process group, including build workers."""
+    if task.poll() is not None:
+        return
+    for signum in (signal.SIGINT, signal.SIGTERM, signal.SIGKILL):
+        try:
+            os.killpg(task.pid, signum)
+        except ProcessLookupError:
+            return
+        try:
+            task.wait(timeout=2)
+            # The command may exit before its workers; clean up the remaining group.
+            try:
+                os.killpg(task.pid, signal.SIGTERM)
+                time.sleep(0.1)
+                os.killpg(task.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            return
+        except subprocess.TimeoutExpired:
+            pass
+
+
+def run_task(command, default_art):
+    """Save command output, animate until completion, then replay/follow the log."""
+    state = Path(os.environ.get("XDG_STATE_HOME") or Path.home() / ".local" / "state")
+    logs = state / "terminal-ascii-screensaver" / "logs"
+    logs.mkdir(parents=True, exist_ok=True)
+    with tempfile.NamedTemporaryFile(prefix="task-", suffix=".log", dir=logs, delete=False) as output:
+        log_path = Path(output.name)
+        try:
+            task = subprocess.Popen(command, stdout=output, stderr=subprocess.STDOUT,
+                                    stdin=subprocess.DEVNULL, start_new_session=True)
+        except OSError as error:
+            print(f"Could not start task: {error}", file=sys.stderr)
+            return 127
+        try:
+            animation_status = main(default_art, task=task)
+            if animation_status:
+                cancel_task(task)
+            # Any ordinary key dismisses the animation without stopping the task.
+            # Replay captured output, then stream new output until the task ends.
+            with log_path.open("rb") as log:
+                while True:
+                    chunk = log.read(65536)
+                    if chunk:
+                        sys.stdout.buffer.write(chunk)
+                        sys.stdout.buffer.flush()
+                    elif task.poll() is not None:
+                        break
+                    else:
+                        time.sleep(0.05)
+            status = task.wait()
+            return animation_status or (status if status >= 0 else 128 - status)
+        except KeyboardInterrupt:
+            cancel_task(task)
+            return 130
+        finally:
+            if task.poll() is None:
+                cancel_task(task)
+            print(f"\nTask log: {log_path}", file=sys.stderr)
 
 
 def engine_effects(engine):
@@ -133,7 +198,7 @@ SAMPLE_ART = r"""  ███████╗ ██████╗█████
         T E R M I N A L   S C R E E N S A V E R"""
 
 
-def main(default_art=None):
+def main(default_art=None, task=None):
     parser = argparse.ArgumentParser(description="Animated ASCII terminal screensaver")
     parser.add_argument("--new-art", action="store_true", help="replace ascii.txt with newly generated text art")
     parser.add_argument("--effect", help="loop a specific ttfx effect instead of choosing randomly (e.g. beams)")
@@ -141,8 +206,17 @@ def main(default_art=None):
     parser.add_argument("--engine", choices=("auto", "ttfx", "tte"), default="auto", help="animation engine (auto prefers installed ttfx)")
     parser.add_argument("--art-path", action="store_true", help="print the artwork file location and exit")
     parser.add_argument("--keep-tmux-status", action="store_true", help="leave the tmux status bar visible")
+    parser.add_argument("--run", nargs=argparse.REMAINDER, help="animate while a non-interactive command runs; must be the last option")
     parser.add_argument("art_file", nargs="?", help="optional ASCII art text file")
     args = parser.parse_args()
+    command = args.run
+    if command is not None:
+        if command and command[0] == "--":
+            command = command[1:]
+        if not command:
+            parser.error("--run requires a command")
+        if args.new_art or args.art_path:
+            parser.error("--run cannot be combined with --new-art or --art-path")
     config = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
     art_path = Path(args.art_file).expanduser() if args.art_file else default_art or config / "terminal-ascii-screensaver" / "ascii.txt"
     if args.art_path:
@@ -188,6 +262,8 @@ def main(default_art=None):
         print(f"Could not load animations: {error}", file=sys.stderr)
         return 1
     current_effect = args.effect
+    if command is not None and task is None:
+        return run_task(command, default_art)
 
     fd = sys.stdin.fileno()
     if not os.isatty(fd):
@@ -206,6 +282,8 @@ def main(default_art=None):
         active = False
         if process and process.poll() is None:
             process.terminate()
+        if _signum and task is not None:
+            cancel_task(task)
 
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
@@ -230,7 +308,7 @@ def main(default_art=None):
         mode = termios.tcgetattr(fd)
         mode[1] |= termios.OPOST | termios.ONLCR
         termios.tcsetattr(fd, termios.TCSANOW, mode)
-        while active:
+        while active and (task is None or task.poll() is None):
             resized = False
             if current_effect is None:
                 current_effect = next(effects)
@@ -259,11 +337,13 @@ def main(default_art=None):
             with subprocess.Popen(command, stdin=subprocess.PIPE, env=env) as process:
                 process.stdin.write((art + "\n").encode("utf-8"))
                 process.stdin.close()
-                while active and process.poll() is None:
+                while active and process.poll() is None and (task is None or task.poll() is None):
                     ready, _, _ = select.select([fd], [], [], 0.05)
                     if ready and os.read(fd, 64):
                         stop(None, None)
-            if active and not resized and process.returncode != 0:
+                if task is not None and task.poll() is not None and process.poll() is None:
+                    process.terminate()
+            if active and not resized and process.returncode != 0 and (task is None or task.poll() is None):
                 return process.returncode
             if not resized and not args.effect:
                 current_effect = None

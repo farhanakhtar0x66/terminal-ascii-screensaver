@@ -5,12 +5,76 @@ import shutil
 import sys
 import tempfile
 import unittest
+import fcntl
+import pty
+import select
+import signal
+import struct
+import termios
+import time
 from unittest.mock import patch
 
 from ascii_screensaver import engine_effects, hidden_tmux_status, shuffled_effects
 
 
 class InstalledCommandTests(unittest.TestCase):
+    def run_task_in_terminal(self, program, key=None, cancel=False):
+        with tempfile.TemporaryDirectory() as directory:
+            master, slave = pty.openpty()
+            original = termios.tcgetattr(slave)
+            fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
+            env = dict(os.environ, XDG_CONFIG_HOME=directory, XDG_STATE_HOME=directory)
+            env.pop("TMUX", None)
+            command = [sys.executable, "-m", "ascii_screensaver", "--engine", "tte", "--effect", "expand",
+                       "--run", sys.executable, "-c", program]
+            process = subprocess.Popen(command, stdin=slave, stdout=slave, stderr=slave, env=env)
+            data = bytearray()
+            started = time.monotonic()
+            sent = False
+            try:
+                while time.monotonic() - started < 12:
+                    if not sent and time.monotonic() - started > .5:
+                        if key:
+                            os.write(master, key)
+                        if cancel:
+                            process.send_signal(signal.SIGINT)
+                        sent = True
+                    if select.select([master], [], [], .05)[0]:
+                        data.extend(os.read(master, 65536))
+                    elif process.poll() is not None:
+                        break
+                status = process.wait(timeout=1)
+                self.assertEqual(termios.tcgetattr(slave), original)
+                logs = list(Path(directory).glob("terminal-ascii-screensaver/logs/*.log"))
+                self.assertEqual(len(logs), 1)
+                return status, bytes(data), logs[0].read_text()
+            finally:
+                if process.poll() is None:
+                    process.kill()
+                    process.wait()
+                os.close(master)
+                os.close(slave)
+
+    def test_task_completion_replays_log_and_returns_failure_status(self):
+        status, output, log = self.run_task_in_terminal(
+            "import sys,time; print('BUILD-OUT', flush=True); print('BUILD-ERR',file=sys.stderr); time.sleep(.3); sys.exit(7)")
+        self.assertEqual(status, 7)
+        self.assertIn(b"BUILD-OUT", output)
+        self.assertIn(b"BUILD-ERR", output)
+        self.assertIn("BUILD-OUT", log)
+        self.assertIn("BUILD-ERR", log)
+
+    def test_dismissal_does_not_cancel_task(self):
+        status, output, log = self.run_task_in_terminal(
+            "import time; time.sleep(1); print('STILL-FINISHED')", key=b"q")
+        self.assertEqual(status, 0)
+        self.assertIn(b"STILL-FINISHED", output)
+        self.assertIn("STILL-FINISHED", log)
+
+    def test_ctrl_c_cancels_task(self):
+        status, _, _ = self.run_task_in_terminal("import time; time.sleep(30)", cancel=True)
+        self.assertEqual(status, 130)
+
     def test_shuffled_cycles_cover_all_effects_without_boundary_repeats(self):
         effects = ["beams", "matrix", "fireworks", "rain"]
         selection = shuffled_effects(effects)
