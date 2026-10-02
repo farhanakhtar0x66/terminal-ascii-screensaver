@@ -207,8 +207,20 @@ def main(default_art=None, task=None):
     parser.add_argument("--art-path", action="store_true", help="print the artwork file location and exit")
     parser.add_argument("--keep-tmux-status", action="store_true", help="leave the tmux status bar visible")
     parser.add_argument("--run", nargs=argparse.REMAINDER, help="animate while a non-interactive command runs; must be the last option")
+    parser.add_argument("--auto", action="store_true", help="start a shell with automatic idle-task animations")
+    parser.add_argument("--shell", choices=("bash", "zsh"), default=Path(os.environ.get("SHELL", "/bin/bash")).name if Path(os.environ.get("SHELL", "/bin/bash")).name in ("bash", "zsh") else "bash")
+    parser.add_argument("--idle-after", type=float, default=10, help="unattended seconds before automatic animation (default: 10)")
+    parser.add_argument("--install-shell", choices=("bash", "zsh"), help="enable automatic sessions in this shell's rc file")
+    parser.add_argument("--install-opencode", action="store_true", help="install the OpenCode busy/permission/question integration")
     parser.add_argument("art_file", nargs="?", help="optional ASCII art text file")
     args = parser.parse_args()
+    if args.install_shell or args.install_opencode:
+        from terminal_auto.controller import install_opencode, install_shell
+        if args.install_shell:
+            print(f"Enabled automatic sessions in {install_shell(args.install_shell)}. Open a new terminal.")
+        if args.install_opencode:
+            print(f"Installed {install_opencode()}. Quit and restart OpenCode inside an automatic session.")
+        return 0
     command = args.run
     if command is not None:
         if command and command[0] == "--":
@@ -243,7 +255,7 @@ def main(default_art=None, task=None):
     if not art_path.exists():
         art_path.write_text(SAMPLE_ART + "\n", encoding="utf-8")
         print(f"Created {art_path}; edit this file to customize the screensaver.", file=sys.stderr)
-    if not art_path.read_text(encoding="utf-8").strip():
+    if not art_path.read_text(encoding="utf-8").strip() and not args.auto:
         print(f"{art_path} is empty; add ASCII art and run again.", file=sys.stderr)
         return 1
     if not sys.stdin.isatty() or not sys.stdout.isatty():
@@ -262,6 +274,16 @@ def main(default_art=None, task=None):
         print(f"Could not load animations: {error}", file=sys.stderr)
         return 1
     current_effect = args.effect
+    if args.auto:
+        if command is not None or args.new_art:
+            parser.error("--auto cannot be combined with --run or --new-art")
+        from terminal_auto.controller import session
+        if args.effect:
+            from itertools import repeat
+            effects = repeat(args.effect)
+        return session(args.shell, args.idle_after, engine, art_path, effects,
+                       args.theme or os.environ.get("NO_COLOR") is not None,
+                       lambda: hidden_tmux_status(not args.keep_tmux_status))
     if command is not None and task is None:
         return run_task(command, default_art)
 

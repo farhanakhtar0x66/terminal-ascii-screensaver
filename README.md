@@ -61,6 +61,59 @@ Installed artwork lives in
 `~/.config/terminal-ascii-screensaver/ascii.txt`, or under `$XDG_CONFIG_HOME` when
 set. Choose any other file with `screensaver /path/to/ascii.txt`.
 
+## Automatic triggering (bash and zsh)
+
+Start an automatic terminal session once, then use your commands normally:
+
+```sh
+screensaver --auto --shell zsh
+# or: screensaver --auto --shell bash
+brew upgrade
+```
+
+When a command is running and you haven't typed or moved the mouse inside the
+terminal for **10 seconds**, the animation appears. Input dismisses it; task
+completion restores the terminal automatically. Output generated while covered
+is held briefly in memory and displayed normally on return, exactly once.
+**Automatic mode writes no task logs.** Commands retain their interactive stdin.
+The shell's prompt itself never starts an animation.
+
+Enable this for future terminal sessions:
+
+```sh
+screensaver --install-shell zsh
+screensaver --install-shell bash
+```
+
+The installer adds a marked startup block to `.zshrc` or `.bashrc` (on macOS,
+`.bash_profile` for bash), preserves existing settings and makes a backup if
+the file already exists. Open a new terminal afterwards. To uninstall the
+integration, remove the marked block before uninstalling the application.
+
+Use `--idle-after 30` to change the delay when starting an automatic session.
+Known confirmation/password prompts suspend the animation. Text-based prompt
+detection cannot recognize every possible custom CLI prompt; pressing a key
+always dismisses the animation, and input is still available to the command.
+Mouse reporting during a task can require holding Shift for native text selection.
+
+### OpenCode
+
+```sh
+screensaver --install-opencode
+```
+
+Quit and restart OpenCode **inside an automatic session**. The optional local
+plugin sends only activity states over a private local socket: working, waiting
+for a question/permission, and idle. It writes no conversation content or logs.
+An animation stops when a question or permission appears or the agent finishes
+its turn—even if the agent application stays open. Full-screen text UI content
+is tracked in memory and redrawn when the overlay is dismissed.
+
+Other full-screen agents are not automatically inferred to be working. They need
+an equivalent activity integration; otherwise their screen remains visible.
+This is not global OS activity monitoring and doesn't attach to terminals that
+were already open outside an automatic session.
+
 ## Themes and effects
 
 Your terminal's background, transparency, font, and configured palette are left
@@ -127,7 +180,8 @@ screensaver --theme --run make -j8
 screensaver --run sh -c 'make && make modules'
 ```
 
-Put `--run` last. Arguments after it belong to the command, and shell expressions
+This older explicit mode is separate from automatic mode and **does save logs**.
+Use `--auto` for automatic triggering without logs. Put `--run` last. Arguments after it belong to the command, and shell expressions
 require an explicit `sh -c`. This mode is for **non-interactive** commands: stdin
 is closed, and combined stdout/stderr are saved to a persistent log under
 `~/.local/state/terminal-ascii-screensaver/logs` (or `$XDG_STATE_HOME`).
@@ -164,6 +218,10 @@ Uninstalling keeps your artwork in your config directory.
 
 - [x] **Task-duration screensaver:** `--run` shows animations while a build runs,
   then restores the terminal, replays logs, and returns the command's exit status.
+- [x] Automatic bash/zsh sessions: trigger after unattended activity and preserve
+  normal task output without disk logs.
+- [x] OpenCode busy/idle/question/permission integration.
+- [ ] Activity integrations for additional interactive agents.
 - [ ] Larger, readable artwork for high-density displays such as the MacBook Air.
 - [ ] Theme-aware animated color gradients, including Catppuccin and light themes.
 
