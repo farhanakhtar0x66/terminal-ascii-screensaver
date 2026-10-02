@@ -108,7 +108,10 @@ versions can differ in effect availability and rendering details.
 - Reads actual terminal rows/columns rather than trusting stale environment values.
 - Centers the artwork and fits oversized art in character cells.
 - Rebuilds the animation when the terminal is resized.
-- Uses a 120 FPS target and continuously chooses random effects.
+- Uses a 120 FPS target and plays every effect once per randomly shuffled cycle.
+  After the full catalog has played, it reshuffles for the next cycle. The last
+  effect of a cycle won't immediately repeat at the start of the next one.
+  Resizing restarts the current effect without consuming another cycle entry.
 - Any key or Ctrl-C exits and restores the terminal's original input settings.
 
 ASCII is a grid of characters, not a scalable image: shrinking large custom art
@@ -137,6 +140,17 @@ pipx uninstall terminal-ascii-screensaver
 ```
 
 Uninstalling keeps your artwork in your config directory.
+
+## TODO
+
+- [ ] **Task-duration screensaver:** show animations while a long-running task
+  runs (such as `npm run build`, compiling a Gentoo kernel, or an agent build),
+  then stop automatically and return to the terminal when it finishes. Preserve
+  the task's logs and exit status, and support cancellation.
+- [ ] Larger, readable artwork for high-density displays such as the MacBook Air.
+- [ ] Theme-aware animated color gradients, including Catppuccin and light themes.
+
+These are planned features; task-duration mode is not implemented yet.
 
 ## Credits and license
 

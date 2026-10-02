@@ -1,5 +1,9 @@
 # Planned improvements
 
+- [ ] Task-duration mode: animate while a build, kernel compilation, or agent task
+  runs; restore the terminal automatically when it finishes, retaining logs and
+  exit status and supporting cancellation.
+
 - [ ] Add larger, readable artwork options for high-density displays such as
   the 13-inch MacBook Air. Favor larger FIGlet fonts and adjustable artwork
   size without changing the user's terminal font or losing letter details.

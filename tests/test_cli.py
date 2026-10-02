@@ -7,10 +7,38 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from ascii_screensaver import hidden_tmux_status
+from ascii_screensaver import engine_effects, hidden_tmux_status, shuffled_effects
 
 
 class InstalledCommandTests(unittest.TestCase):
+    def test_shuffled_cycles_cover_all_effects_without_boundary_repeats(self):
+        effects = ["beams", "matrix", "fireworks", "rain"]
+        selection = shuffled_effects(effects)
+        previous = None
+        for _ in range(30):
+            cycle = [next(selection) for _ in effects]
+            self.assertCountEqual(cycle, effects)
+            self.assertNotEqual(cycle[0], previous)
+            previous = cycle[-1]
+
+    def test_single_effect_catalog_is_supported(self):
+        selection = shuffled_effects(["beams"])
+        self.assertEqual([next(selection) for _ in range(3)], ["beams"] * 3)
+
+    def test_python_engine_catalog(self):
+        catalog = engine_effects([sys.executable, "-m", "terminaltexteffects"])
+        self.assertIn("beams", catalog)
+        self.assertIn("matrix", catalog)
+        self.assertGreater(len(catalog), 20)
+        self.assertNotIn("help", catalog)
+
+    @unittest.skipUnless(shutil.which("ttfx"), "ttfx not installed")
+    def test_rust_engine_catalog(self):
+        catalog = engine_effects(["ttfx"])
+        self.assertIn("fireworks", catalog)
+        self.assertGreater(len(catalog), 20)
+        self.assertNotIn("help", catalog)
+
     @unittest.skipUnless(shutil.which("tmux"), "tmux not installed")
     def test_tmux_status_restores_inheritance_and_explicit_value(self):
         with tempfile.TemporaryDirectory() as directory:

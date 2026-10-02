@@ -4,6 +4,8 @@
 import argparse
 import importlib.util
 import os
+import random
+import re
 import select
 import shutil
 import signal
@@ -13,6 +15,38 @@ import termios
 import tty
 from pathlib import Path
 from contextlib import ExitStack, contextmanager
+
+
+def engine_effects(engine):
+    """Discover the actual effect catalog from either engine's CLI."""
+    help_text = subprocess.check_output(engine + ["--help"], text=True, timeout=10)
+    if "Commands:\n" in help_text:
+        section = help_text.split("Commands:\n", 1)[1].split("Options:", 1)[0]
+    elif "Effect:\n" in help_text:
+        section = help_text.split("Effect:\n", 1)[1]
+    else:
+        raise ValueError("Could not discover animation effects from the engine")
+    effects = list(dict.fromkeys(re.findall(r"^ {2,4}([a-z][a-z0-9]*) {2,}\S", section, re.MULTILINE)))
+    effects = [effect for effect in effects if effect != "help"]
+    if not effects:
+        raise ValueError("The animation engine did not report any effects")
+    return effects
+
+
+def shuffled_effects(effects):
+    """Play each effect once per shuffled cycle, with no boundary repeat."""
+    previous = None
+    while True:
+        cycle = list(effects)
+        if not cycle:
+            raise ValueError("An effect cycle cannot be empty")
+        random.shuffle(cycle)
+        if len(cycle) > 1 and cycle[0] == previous:
+            index = random.randrange(1, len(cycle))
+            cycle[0], cycle[index] = cycle[index], cycle[0]
+        for effect in cycle:
+            previous = effect
+            yield effect
 
 
 @contextmanager
@@ -148,6 +182,12 @@ def main(default_art=None):
     else:
         print("Animation engine unavailable. Install this project with pipx, or install ttfx from https://github.com/omacom/ttfx", file=sys.stderr)
         return 127
+    try:
+        effects = None if args.effect else shuffled_effects(engine_effects(engine))
+    except (OSError, subprocess.SubprocessError, ValueError) as error:
+        print(f"Could not load animations: {error}", file=sys.stderr)
+        return 1
+    current_effect = args.effect
 
     fd = sys.stdin.fileno()
     if not os.isatty(fd):
@@ -192,6 +232,8 @@ def main(default_art=None):
         termios.tcsetattr(fd, termios.TCSANOW, mode)
         while active:
             resized = False
+            if current_effect is None:
+                current_effect = next(effects)
             width, height = get_tty_size(fd)
             width, height = max(1, width - 1), max(1, height - 1)
             art = fit_art(art_path.read_text(encoding="utf-8"), width, height)
@@ -206,7 +248,7 @@ def main(default_art=None):
             ]
             if args.theme or os.environ.get("NO_COLOR") is not None:
                 command.append("--no-color")
-            command.append(args.effect if args.effect else "--random-effect")
+            command.append(current_effect)
             # TTE's reuse mode restores a saved cursor below the canvas, then
             # moves up by its height. Seed that cursor before each invocation.
             sys.stdout.write(f"\x1b[2J\x1b[{height + 1};1H\x1b7")
@@ -223,6 +265,8 @@ def main(default_art=None):
                         stop(None, None)
             if active and not resized and process.returncode != 0:
                 return process.returncode
+            if not resized and not args.effect:
+                current_effect = None
             if active:
                 # Clear the previous effect before the next randomly selected one.
                 sys.stdout.write("\x1b[2J\x1b[H")
