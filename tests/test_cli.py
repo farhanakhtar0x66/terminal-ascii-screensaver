@@ -17,6 +17,15 @@ from unittest.mock import patch
 from ascii_screensaver import engine_effects, hidden_tmux_status, shuffled_effects
 
 
+def terminal_settings(settings):
+    # Darwin sets PENDIN when canonical input is restored. This is transient
+    # kernel bookkeeping, not a changed echo/input/output configuration.
+    normalized = list(settings)
+    normalized[3] &= ~getattr(termios, "PENDIN", 0)
+    normalized[6] = [bytes([value]) if isinstance(value, int) else value for value in settings[6]]
+    return normalized
+
+
 class InstalledCommandTests(unittest.TestCase):
     def run_task_in_terminal(self, program, key=None, cancel=False):
         with tempfile.TemporaryDirectory() as directory:
@@ -44,7 +53,7 @@ class InstalledCommandTests(unittest.TestCase):
                     elif process.poll() is not None:
                         break
                 status = process.wait(timeout=1)
-                self.assertEqual(termios.tcgetattr(slave), original)
+                self.assertEqual(terminal_settings(termios.tcgetattr(slave)), terminal_settings(original))
                 logs = list(Path(directory).glob("terminal-ascii-screensaver/logs/*.log"))
                 self.assertEqual(len(logs), 1)
                 return status, bytes(data), logs[0].read_text()
