@@ -1,0 +1,2 @@
+# Trailing spaces are valid cells in editable ASCII artwork.
+ascii.txt whitespace=-blank-at-eol

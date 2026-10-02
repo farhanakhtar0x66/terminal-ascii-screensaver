@@ -1,0 +1,27 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "terminal-ascii-screensaver"
+version = "0.1.0"
+description = "Omarchy-inspired terminal ASCII screensaver for Linux and macOS"
+readme = "README.md"
+requires-python = ">=3.9"
+license = {text = "MIT"}
+dependencies = ["terminaltexteffects>=0.12,<0.16", "pyfiglet>=1.0,<2"]
+classifiers = [
+  "Environment :: Console",
+  "Operating System :: POSIX :: Linux",
+  "Operating System :: MacOS",
+  "Programming Language :: Python :: 3",
+]
+
+[project.scripts]
+screensaver = "ascii_screensaver:main"
+
+[project.urls]
+Repository = "https://github.com/farhanakhtar0x66/terminal-ascii-screensaver"
+
+[tool.setuptools]
+py-modules = ["ascii_screensaver"]
