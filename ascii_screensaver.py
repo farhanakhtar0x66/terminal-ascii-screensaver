@@ -287,6 +287,8 @@ def main(default_art=None, task=None):
 
     signal.signal(signal.SIGINT, stop)
     signal.signal(signal.SIGTERM, stop)
+    if hasattr(signal, "SIGHUP"):
+        signal.signal(signal.SIGHUP, stop)
 
     def resize(_signum, _frame):
         nonlocal resized
