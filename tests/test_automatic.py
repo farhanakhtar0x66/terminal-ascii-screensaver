@@ -61,11 +61,14 @@ class AutomaticSessionTests(unittest.TestCase):
             self.assertEqual(path.read_text(), contents)
             self.assertEqual(path.with_name(path.name + ".screensaver-backup").read_text(), "alias keep='true'\n")
 
-    def terminal_session(self, shell, task, check):
+    def terminal_session(self, shell, task, check, tmux=False):
         with tempfile.TemporaryDirectory() as directory:
             Path(directory, ".bashrc").write_text("PS1='READY> '\n")
             Path(directory, ".bash_profile").write_text("source ~/.bashrc\n")
             Path(directory, ".zshrc").write_text("PS1='READY> '\n")
+            # Isolate fixtures from the runner's global compinit/security prompt.
+            # The application still loads normal global/user configuration.
+            Path(directory, ".zshenv").write_text("unsetopt GLOBAL_RCS\n")
             art = Path(directory, "ascii.txt")
             art.write_text("ANIMATION\n")
             master, slave = pty.openpty()
@@ -73,6 +76,15 @@ class AutomaticSessionTests(unittest.TestCase):
             fcntl.ioctl(slave, termios.TIOCSWINSZ, struct.pack("HHHH", 24, 80, 0, 0))
             env = dict(os.environ, HOME=directory, XDG_CONFIG_HOME=directory)
             env.pop("ZDOTDIR", None)
+            env.pop("TMUX", None)
+            env.pop("TMUX_PANE", None)
+            if tmux:
+                tools = Path(directory, "bin")
+                tools.mkdir()
+                stub = tools / "tmux"
+                stub.write_text("#!" + sys.executable + "\nimport os,signal,sys\na=sys.argv[1:]\nif a[0]=='display-message': print('$1')\nelif a[0]=='show-options': print('on')\nelif a[0]=='set-option':\n open(os.path.join(os.environ['HOME'],'status-calls'),'a').write(a[-1]+'\\n')\n os.kill(os.getppid(),signal.SIGWINCH)\n")
+                stub.chmod(0o755)
+                env.update(TMUX="fixture", TMUX_PANE="%1", PATH=str(tools) + os.pathsep + env["PATH"])
             command = [sys.executable, "-m", "ascii_screensaver", str(art), "--auto", "--shell", shell,
                        "--engine", "tte", "--effect", "expand", "--idle-after", ".2"]
             process = subprocess.Popen(command, stdin=slave, stdout=slave, stderr=slave, env=env)
@@ -165,11 +177,23 @@ class AutomaticSessionTests(unittest.TestCase):
             fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
             self.automatic_process.send_signal(signal.SIGWINCH)
             read_for(.45)
-            self.assertIn(b"\x1b[?1049l", data)
+            self.assertNotIn(b"\x1b[?1049l", data)
             self.assertIn(b"\x1b[40;1H\x1b7", data)
             read_for(.8)
             self.assertIn(b"RESIZE-DONE\r\n", data)
+            self.assertIn(b"\x1b[?1049l", data)
         self.terminal_session("bash", "sleep 1.1; printf 'RESIZE-DONE\\n'", check)
+
+    def test_tmux_status_resize_does_not_immediately_dismiss_overlay(self):
+        def check(master, data, read_for, directory):
+            read_for(.65)
+            self.assertIn(b"\x1b[?1049h", data)
+            self.assertNotIn(b"\x1b[?1049l", data)
+            self.assertEqual(Path(directory, "status-calls").read_text(), "off\n")
+            read_for(.8)
+            self.assertIn(b"TMUX-DONE\r\n", data)
+            self.assertEqual(Path(directory, "status-calls").read_text(), "off\non\n")
+        self.terminal_session("bash", "sleep 1; printf 'TMUX-DONE\\n'", check, tmux=True)
 
     def test_mouse_movement_resets_inactivity(self):
         def check(master, data, read_for, directory):

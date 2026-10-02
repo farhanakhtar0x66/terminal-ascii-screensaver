@@ -300,9 +300,18 @@ def session(shell, delay, engine, art_path, effects, theme=False, hide_status=No
                     resize_pending = False
                     new_size = os.get_terminal_size(output_fd)
                     screen.resize(new_size.lines, new_size.columns)
-                    dismiss()
                     fcntl.ioctl(master, termios.TIOCSWINSZ, struct.pack("HHHH", new_size.lines, new_size.columns, 0, 0))
-                    last_activity = time.monotonic()
+                    if overlay:
+                        # Hiding a tmux status bar itself resizes the pane. Keep
+                        # the overlay/context active and only rebuild its canvas.
+                        if animation is not None:
+                            if animation.poll() is None:
+                                animation.terminate()
+                                animation.wait()
+                            animation.stdout.close()
+                            animation = None
+                    else:
+                        last_activity = time.monotonic()
                 descriptors = [input_fd, master, control, *peers]
                 if animation is not None and not animation.stdout.closed:
                     descriptors.append(animation.stdout)
