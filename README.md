@@ -80,6 +80,25 @@ screensaver --effect matrix
 screensaver --effect vhstape
 ```
 
+Effect palettes are not automatically derived from Catppuccin or another terminal
+theme. For consistently theme-matching text, use `screensaver --theme`.
+
+## tmux
+
+Inside tmux, the screensaver hides the current session's status bar while it runs
+and restores the previous setting on exit, including multi-row status bars and
+inherited settings. This affects all clients attached to that session. It runs
+inside the current pane; it does not hide other panes or pane borders.
+
+To keep the status bar visible:
+
+```sh
+screensaver --keep-tmux-status
+```
+
+Larger artwork for high-density screens and animated theme palettes are tracked
+in [TODO.md](TODO.md).
+
 Use `screensaver --engine tte` to force the bundled Python engine or
 `screensaver --engine ttfx` to force Omarchy's installed Rust engine. Engine
 versions can differ in effect availability and rendering details.

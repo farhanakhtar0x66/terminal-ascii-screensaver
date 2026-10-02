@@ -12,6 +12,39 @@ import sys
 import termios
 import tty
 from pathlib import Path
+from contextlib import ExitStack, contextmanager
+
+
+@contextmanager
+def hidden_tmux_status(enabled=True):
+    """Temporarily override status only in this pane's tmux session."""
+    session = None
+    previous = None
+
+    def tmux(*args):
+        return subprocess.run(
+            ["tmux", *args], capture_output=True, text=True, timeout=3, check=True,
+        ).stdout.strip()
+
+    try:
+        if enabled and os.environ.get("TMUX") and shutil.which("tmux"):
+            try:
+                session = tmux("display-message", "-p", "-t", os.environ.get("TMUX_PANE", ""), "#{session_id}")
+                previous = tmux("show-options", "-qv", "-t", session, "status")
+                tmux("set-option", "-t", session, "status", "off")
+            except (OSError, subprocess.SubprocessError):
+                session = None
+        yield
+    finally:
+        if session is not None:
+            try:
+                if previous:
+                    tmux("set-option", "-t", session, "status", previous)
+                else:
+                    # Restore inheritance, rather than pinning the global value.
+                    tmux("set-option", "-u", "-t", session, "status")
+            except (OSError, subprocess.SubprocessError):
+                pass
 
 
 def get_tty_size(fd):
@@ -73,6 +106,7 @@ def main(default_art=None):
     parser.add_argument("--theme", "--no-color", action="store_true", help="use your terminal's foreground color instead of effect palettes")
     parser.add_argument("--engine", choices=("auto", "ttfx", "tte"), default="auto", help="animation engine (auto prefers installed ttfx)")
     parser.add_argument("--art-path", action="store_true", help="print the artwork file location and exit")
+    parser.add_argument("--keep-tmux-status", action="store_true", help="leave the tmux status bar visible")
     parser.add_argument("art_file", nargs="?", help="optional ASCII art text file")
     args = parser.parse_args()
     config = Path(os.environ.get("XDG_CONFIG_HOME") or Path.home() / ".config")
@@ -147,7 +181,9 @@ def main(default_art=None):
     # Leave the terminal's configured background and palette untouched.
     sys.stdout.write("\x1b[?1049h\x1b[?25l\x1b[0m\x1b[2J\x1b[H")
     sys.stdout.flush()
+    cleanup = ExitStack()
     try:
+        cleanup.enter_context(hidden_tmux_status(not args.keep_tmux_status))
         # cbreak disables input echo/buffering but preserves output processing.
         # Raw mode disables ONLCR, breaking TTE's newline-separated frame rows.
         tty.setcbreak(fd)
@@ -192,12 +228,15 @@ def main(default_art=None):
                 sys.stdout.write("\x1b[2J\x1b[H")
                 sys.stdout.flush()
     finally:
-        if process and process.poll() is None:
-            process.terminate()
-            process.wait()
-        termios.tcsetattr(fd, termios.TCSADRAIN, saved)
-        sys.stdout.write("\x1b[?25h\x1b[?1049l\x1b[0m")
-        sys.stdout.flush()
+        try:
+            if process and process.poll() is None:
+                process.terminate()
+                process.wait()
+            termios.tcsetattr(fd, termios.TCSADRAIN, saved)
+            sys.stdout.write("\x1b[?25h\x1b[?1049l\x1b[0m")
+            sys.stdout.flush()
+        finally:
+            cleanup.close()
     return 0
 
 
